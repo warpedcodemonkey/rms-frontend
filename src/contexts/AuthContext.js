@@ -37,7 +37,15 @@ export const AuthProvider = ({ children }) => {
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
+        
+        // Store user data
         localStorage.setItem('rms_user', JSON.stringify(userData));
+        
+        // Store authentication credentials for API calls
+        // Create Base64 encoded credentials for Basic Auth
+        const authString = btoa(`${credentials.username}:${credentials.password}`);
+        localStorage.setItem('rms_auth', authString);
+        
         return userData;
       } else {
         const errorData = await response.json();
@@ -52,6 +60,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('rms_user');
+    localStorage.removeItem('rms_auth'); // Also remove auth credentials
   };
 
   const value = {
