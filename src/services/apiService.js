@@ -3,14 +3,19 @@ class ApiService {
     this.baseURL = 'http://localhost:8080/api';
   }
 
+  getAuthHeaders() {
+    const auth = localStorage.getItem('rms_auth');
+    return auth ? { 'Authorization': 'Basic ' + auth } : {};
+  }
+
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const config = {
       headers: {
         'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
         ...options.headers,
       },
-      credentials: 'include', // Important for session cookies
       ...options,
     };
 
