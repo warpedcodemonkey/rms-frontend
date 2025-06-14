@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const UserForm = ({ user, onClose, onSave }) => {
+  const { user: currentUser } = useAuth();
+  
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -31,6 +34,29 @@ const UserForm = ({ user, onClose, onSave }) => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
+  // Determine available user types based on current user
+  const getAvailableUserTypes = () => {
+    // Check if current user is admin
+    if (currentUser && (currentUser.userType === 'ADMINISTRATOR' || currentUser.isAdmin)) {
+      // Admins can create any type of user
+      return [
+        { value: 'CUSTOMER', label: 'Customer' },
+        { value: 'ADMINISTRATOR', label: 'Administrator' },
+        { value: 'VETERINARIAN', label: 'Veterinarian' }
+      ];
+    } else {
+      // Account users can only create customers
+      return [
+        { value: 'CUSTOMER', label: 'Customer' }
+      ];
+    }
+  };
+
+  const isUserTypeDisabled = () => {
+    const availableTypes = getAvailableUserTypes();
+    return !user && availableTypes.length === 1;
+  };
+
   useEffect(() => {
     if (user) {
       setFormData({
@@ -57,8 +83,17 @@ const UserForm = ({ user, onClose, onSave }) => {
         clinicAddress: user.clinicAddress || '',
         yearsExperience: user.yearsExperience || 0
       });
+    } else {
+      // For new users, set default user type based on available options
+      const availableTypes = getAvailableUserTypes();
+      if (availableTypes.length === 1) {
+        setFormData(prev => ({
+          ...prev,
+          userType: availableTypes[0].value
+        }));
+      }
     }
-  }, [user]);
+  }, [user, currentUser]);
 
   const validateForm = () => {
     const newErrors = {};
@@ -89,6 +124,13 @@ const UserForm = ({ user, onClose, onSave }) => {
     // User type specific validations
     if (formData.userType === 'VETERINARIAN' && !formData.licenseNumber.trim()) {
       newErrors.licenseNumber = 'License number is required for veterinarians';
+    }
+
+    // Check if user type is allowed
+    const availableTypes = getAvailableUserTypes();
+    const isValidType = availableTypes.some(type => type.value === formData.userType);
+    if (!isValidType) {
+      newErrors.userType = 'You are not authorized to create this type of user';
     }
 
     setErrors(newErrors);
@@ -137,7 +179,13 @@ const UserForm = ({ user, onClose, onSave }) => {
       await onSave(payload);
     } catch (error) {
       console.error('Error saving user:', error);
-      setErrors({ submit: 'Failed to save user. Please try again.' });
+      if (error.message && error.message.includes('Account users can only create customer users')) {
+        setErrors({ submit: 'You can only create customer users within your account.' });
+      } else if (error.message && error.message.includes('Account has reached maximum user limit')) {
+        setErrors({ submit: 'Your account has reached the maximum user limit. Please contact an administrator.' });
+      } else {
+        setErrors({ submit: 'Failed to save user. Please try again.' });
+      }
     } finally {
       setLoading(false);
     }
@@ -260,8 +308,8 @@ const UserForm = ({ user, onClose, onSave }) => {
             <div>
               <label className="block text-sm font-medium text-gray-700">Clinic Address</label>
               <textarea
-                rows={2}
                 className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
+                rows={3}
                 value={formData.clinicAddress}
                 onChange={(e) => handleChange('clinicAddress', e.target.value)}
               />
@@ -288,7 +336,7 @@ const UserForm = ({ user, onClose, onSave }) => {
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center p-6 border-b">
-          <h3 className="text-lg font-medium">
+          <h3 className="text-lg font-medium text-gray-900">
             {user ? 'Edit User' : 'Add New User'}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -380,16 +428,31 @@ const UserForm = ({ user, onClose, onSave }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">User Type</label>
+              <label className="block text-sm font-medium text-gray-700">User Type *</label>
               <select
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
+                required
+                className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 ${
+                  errors.userType ? 'border-red-300' : ''
+                }`}
                 value={formData.userType}
                 onChange={(e) => handleChange('userType', e.target.value)}
+                disabled={isUserTypeDisabled()}
               >
-                <option value="CUSTOMER">Customer</option>
-                <option value="ADMINISTRATOR">Administrator</option>
-                <option value="VETERINARIAN">Veterinarian</option>
+                <option value="">Select User Type</option>
+                {getAvailableUserTypes().map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
               </select>
+              {errors.userType && (
+                <p className="mt-1 text-sm text-red-600">{errors.userType}</p>
+              )}
+              {isUserTypeDisabled() && (
+                <p className="mt-1 text-sm text-gray-500">
+                  You can only create customer users within your account.
+                </p>
+              )}
             </div>
           </div>
 
@@ -414,11 +477,10 @@ const UserForm = ({ user, onClose, onSave }) => {
                   className="absolute inset-y-0 right-0 flex items-center pr-3"
                   onClick={() => setShowPassword(!showPassword)}
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4 text-gray-400" />
-                  ) : (
+                  {showPassword ? 
+                    <EyeOff className="h-4 w-4 text-gray-400" /> :
                     <Eye className="h-4 w-4 text-gray-400" />
-                  )}
+                  }
                 </button>
               </div>
               {errors.password && (
@@ -427,14 +489,17 @@ const UserForm = ({ user, onClose, onSave }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
+              <label className="block text-sm font-medium text-gray-700">
+                Confirm Password {!user && formData.password && '*'}
+              </label>
               <input
-                type={showPassword ? 'text' : 'password'}
+                type="password"
                 className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 ${
                   errors.confirmPassword ? 'border-red-300' : ''
                 }`}
                 value={formData.confirmPassword}
                 onChange={(e) => handleChange('confirmPassword', e.target.value)}
+                placeholder={user ? 'Confirm new password' : ''}
               />
               {errors.confirmPassword && (
                 <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
@@ -442,43 +507,56 @@ const UserForm = ({ user, onClose, onSave }) => {
             </div>
           </div>
 
+          {/* User Type Specific Fields */}
+          {formData.userType && (
+            <div className="border-t pt-4">
+              <h4 className="text-md font-medium text-gray-900 mb-4">
+                {formData.userType === 'CUSTOMER' && 'Customer Information'}
+                {formData.userType === 'ADMINISTRATOR' && 'Administrator Information'}
+                {formData.userType === 'VETERINARIAN' && 'Veterinarian Information'}
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {renderUserTypeFields()}
+              </div>
+            </div>
+          )}
+
           {/* Status */}
           <div className="flex items-center">
             <input
               type="checkbox"
               id="isActive"
-              className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+              className="h-4 w-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
               checked={formData.isActive}
               onChange={(e) => handleChange('isActive', e.target.checked)}
             />
-            <label htmlFor="isActive" className="ml-2 block text-sm text-gray-900">
+            <label htmlFor="isActive" className="ml-2 block text-sm text-gray-700">
               Active User
             </label>
           </div>
 
-          {/* User Type Specific Fields */}
-          {renderUserTypeFields()}
-          <div className="flex justify-end space-x-3 pt-6 border-t">
-           <button
-             type="button"
-             onClick={onClose}
-             className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-           >
-             Cancel
-           </button>
-           <button
-             type="submit"
-             disabled={loading}
-             className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center space-x-2 disabled:opacity-50"
-           >
-             <Save className="h-4 w-4" />
-             <span>{loading ? 'Saving...' : 'Save User'}</span>
-           </button>
-         </div>
-       </form>
-     </div>
-   </div>
- );
+          {/* Form Actions */}
+          <div className="flex justify-end space-x-4 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-gray-300 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+            >
+              <Save className="inline h-4 w-4 mr-2" />
+              <span>{loading ? 'Saving...' : 'Save User'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 };
 
 export default UserForm;
